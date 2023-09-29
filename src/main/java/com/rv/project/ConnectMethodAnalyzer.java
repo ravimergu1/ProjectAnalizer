@@ -11,12 +11,18 @@ import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.printer.configuration.DefaultPrinterConfiguration;
 
 import java.io.*;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class ConnectMethodAnalyzer {
 
+    static Map<String, List<String>> data;
+
     public static void main(String[] args) {
+        data = new LinkedHashMap<>();
         String baseDirectory = "/home/gaian/snaplogic/Snap_v4";
         loadPomFiles(baseDirectory);
     }
@@ -28,9 +34,7 @@ public class ConnectMethodAnalyzer {
                 if(file.isDirectory()) {
                     loadPomFiles(file.getAbsolutePath());
                 } else if (file.isFile() && file.getName().equals("pom.xml")) {
-                    System.out.println("\n\n");
-                    System.out.println(file.getAbsoluteFile());
-                    System.out.println("---------------------------------------------------------");
+                    wait1Sec();
                     extractClassNames(file);
                 }
             }
@@ -47,11 +51,13 @@ public class ConnectMethodAnalyzer {
             boolean classfound = false;
 
             // Read and print each line of the file
+            List<String> accountClassList = new ArrayList<>();
             while ((accountClass = bufferedReader.readLine()) != null) {
                 if(accountClass.contains("<account.classes>") && accountClass.contains("</account.classes>")){
                     accountClass = accountClass.replace("<account.classes>", "")
                             .replace("</account.classes>", "").trim();
-                    checkConnectMethod(accountClass, pomFile);
+                    accountClassList.add(accountClass);
+                    //checkConnectMethod(accountClass, pomFile);
                     classfound = false;
                     continue;
                 }
@@ -68,12 +74,21 @@ public class ConnectMethodAnalyzer {
                     if(accountClass.endsWith(",")) {
                         accountClass = accountClass.replace(",", "");
                     }
-                    checkConnectMethod(accountClass, pomFile);
+                    accountClassList.add(accountClass);
+                    //checkConnectMethod(accountClass, pomFile);
                 }
             }
             // Close the BufferedReader and FileReader when done
             bufferedReader.close();
             fileReader.close();
+            if (!accountClassList.isEmpty()) {
+                System.out.println("\n\n");
+                System.out.println(pomFile.getAbsoluteFile());
+                System.out.println("---------------------------------------------------------");
+                for (String accountClassName : accountClassList) {
+                    checkConnectMethod(accountClassName, pomFile);
+                }
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -85,14 +100,20 @@ public class ConnectMethodAnalyzer {
         buffer.append(accountClass.replace(".", "/"));
         buffer.append(".java");
         File javaFile = new File(buffer.toString());
+        wait1Sec();
         System.out.println(javaFile.getAbsoluteFile());
-        readMethod(javaFile);
+        List<String> exceptions = readMethod(javaFile);
+        System.out.println("account class : " + javaFile.getAbsolutePath());
+        System.out.println("Exceptions are " + exceptions);
+
     }
 
-    public static void readMethod(File javaFile) {
+    public static List<String> readMethod(File javaFile) {
+        AtomicReference<List<String>> list = new AtomicReference<>(new ArrayList<>());
         if (!javaFile.exists()) {
+            wait1Sec();
             System.err.println("java file not found : " + javaFile);
-            return;
+            return null;
         }
         try {
             CompilationUnit cu = StaticJavaParser.parse(javaFile);
@@ -104,8 +125,10 @@ public class ConnectMethodAnalyzer {
                     MethodDeclaration methodDeclaration = (MethodDeclaration) node;
                     if (methodDeclaration.getNameAsString().equals(methodName)) {
                         String methodCode = methodDeclaration.toString(configuration);
-                        System.out.println("Method '" + "connect" + "':");
-                        System.out.println(methodCode);
+                        wait1Sec();
+                        list.set(findExceptions(methodCode));
+                        //System.out.println("Method '" + "connect" + "':");
+                        //System.out.println(methodCode);
                         isFoundAccountMethod.set(true);
                     }
                 }
@@ -122,39 +145,83 @@ public class ConnectMethodAnalyzer {
                     NodeList<ClassOrInterfaceType> extendedClassOptional = clazz.getExtendedTypes();
                     for (ClassOrInterfaceType classOrInterfaceType : extendedClassOptional) {
                         String parentName = classOrInterfaceType.getName().asString();
+                        if (className.equals(parentName)) {
+                            System.out.println("found same class name with parent " + classOrInterfaceType.getNameWithScope());
+                            continue;
+                        }
+
                         String parentJavaFileName = javaFile.getParent()+ File.separator + parentName + ".java";
                         File parentClassFile = new File(parentJavaFileName);
                         if (parentClassFile.exists()) {
+                            wait1Sec();
                             System.out.println("1. found parent class: " + parentJavaFileName);
-                            readMethod(parentClassFile);
-                            return;
+                            return readMethod(parentClassFile);
                         }
                         NodeList<ImportDeclaration> imports = cu.getImports();
                         for (ImportDeclaration anImport : imports) {
                             String importName = anImport.getName().toString();
                             if (importName.endsWith(parentName)) {
                                 String pName = javaFile.getAbsolutePath().substring(0, javaFile.getAbsolutePath().indexOf("java/")+5) + importName.replace(".", File.separator) + ".java";
+                                wait1Sec();
                                 System.out.println("2. found parent class: " + pName);
-                                readMethod(new File(pName));
-                                return;
+                                return readMethod(new File(pName));
                             }
                         }
-
+                        wait1Sec();
                         System.out.println(classOrInterfaceType);
                     }
-
-                    /*if (extendedClassOptional.isPresent()) {
-                        ClassOrInterfaceDeclaration extendedClass = extendedClassOptional.get();
-                        System.out.println("Class '" + className + "' extends class: " + extendedClass.getName());
-                    } else {
-                        System.out.println("Class '" + className + "' does not extend another class.");
-                    }*/
                 } else {
+                    wait1Sec();
                     System.out.println("Class '" + className + "' not found in the Java file.");
                 }
             }
         } catch (FileNotFoundException e) {
             e.printStackTrace();
+        }
+        return list.get();
+    }
+
+    private static List<String> findExceptions(String code) {
+        List<String> list = new ArrayList<>();
+        // Define a regular expression pattern to match "throws" clauses
+        Pattern pattern = Pattern.compile("throws\\s+(\\w+(\\.\\w+)?(,\\s*\\w+(\\.\\w+)?)*)");
+
+        // Create a matcher for the code string
+        Matcher matcher = pattern.matcher(code);
+
+        // Find and print matching "throws" clauses
+        while (matcher.find()) {
+            String exceptions = matcher.group(1);
+            String[] exceptionArray = exceptions.split(",\\s*");
+            for (String exception : exceptionArray) {
+               list.add("throws : " + exception);
+            }
+        }
+
+        // Define a regular expression pattern to match "throws" clauses
+        Pattern pattern1 = Pattern.compile("throw\\s+new\\s+(\\w+(\\.\\w+)?(,\\s*\\w+(\\.\\w+)?)*)");
+
+        // Create a matcher for the code string
+        Matcher matcher1 = pattern1.matcher(code);
+
+        // Find and print matching "throws" clauses
+        while (matcher1.find()) {
+            String exceptions = matcher1.group(1);
+            String[] exceptionArray = exceptions.split(",\\s*");
+            for (String exception : exceptionArray) {
+                list.add("throw new : " + exception);
+            }
+        }
+
+        return list;
+    }
+
+    private static void wait1Sec() {
+
+        try {
+            Thread.sleep(10);
+        } catch (InterruptedException e) {
+            System.err.println(e.getMessage());
         }
     }
 }
