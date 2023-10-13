@@ -83,7 +83,12 @@ public class ConnectMethodAnalyzer {
             fileReader.close();
             if (!accountClassList.isEmpty()) {
                 System.out.println("\n\n");
-                System.out.println(pomFile.getAbsoluteFile());
+                String getSnapName = pomFile.getAbsolutePath().replace("/pom.xml","");
+                int index=getSnapName.lastIndexOf('/');
+                String color = "\u001B[33m";
+                String reset = "\u001B[0m";
+                System.out.println(color+"Snappack Name : "+reset+""+getSnapName.substring(index+1).toUpperCase());
+               // System.out.println(pomFile.getAbsoluteFile());
                 System.out.println("---------------------------------------------------------");
                 for (String accountClassName : accountClassList) {
                     checkConnectMethod(accountClassName, pomFile);
@@ -101,10 +106,14 @@ public class ConnectMethodAnalyzer {
         buffer.append(".java");
         File javaFile = new File(buffer.toString());
         wait1Sec();
-        System.out.println(javaFile.getAbsoluteFile());
+       // System.out.println(javaFile.getAbsoluteFile());
         List<String> exceptions = readMethod(javaFile);
-        System.out.println("account class : " + javaFile.getAbsolutePath());
-        System.out.println("Exceptions are " + exceptions);
+        int index= javaFile.getAbsolutePath().lastIndexOf('/');
+        //result.put(javaFile.getAbsolutePath().substring(index+1), exceptions);
+        String green = "\u001B[32m";
+        String reset = "\u001B[0m";
+        System.out.println(green+"Account class : "+reset+"" + javaFile.getAbsolutePath().substring(index+1));
+        System.out.println(green+"Exceptions are :" +reset+""+ exceptions);
 
     }
 
@@ -112,7 +121,8 @@ public class ConnectMethodAnalyzer {
         AtomicReference<List<String>> list = new AtomicReference<>(new ArrayList<>());
         if (!javaFile.exists()) {
             wait1Sec();
-            System.err.println("java file not found : " + javaFile);
+            int index = javaFile.getAbsolutePath().lastIndexOf('/');
+            System.err.println("java file not found : " + javaFile.getAbsolutePath().substring(index+1));
             return null;
         }
         try {
@@ -146,7 +156,7 @@ public class ConnectMethodAnalyzer {
                     for (ClassOrInterfaceType classOrInterfaceType : extendedClassOptional) {
                         String parentName = classOrInterfaceType.getName().asString();
                         if (className.equals(parentName)) {
-                            System.out.println("found same class name with parent " + classOrInterfaceType.getNameWithScope());
+                          //  System.out.println("found same class name with parent " + classOrInterfaceType.getNameWithScope());
                             continue;
                         }
 
@@ -154,7 +164,8 @@ public class ConnectMethodAnalyzer {
                         File parentClassFile = new File(parentJavaFileName);
                         if (parentClassFile.exists()) {
                             wait1Sec();
-                            System.out.println("1. found parent class: " + parentJavaFileName);
+                            int last = parentJavaFileName.lastIndexOf('/');
+                        //    System.out.println("1. Found parent class: " + parentJavaFileName.substring(last+1));
                             return readMethod(parentClassFile);
                         }
                         NodeList<ImportDeclaration> imports = cu.getImports();
@@ -163,7 +174,8 @@ public class ConnectMethodAnalyzer {
                             if (importName.endsWith(parentName)) {
                                 String pName = javaFile.getAbsolutePath().substring(0, javaFile.getAbsolutePath().indexOf("java/")+5) + importName.replace(".", File.separator) + ".java";
                                 wait1Sec();
-                                System.out.println("2. found parent class: " + pName);
+                                int index= pName.lastIndexOf('/');
+                            //    System.out.println("2. found parent class: " + pName.substring(index+1));
                                 return readMethod(new File(pName));
                             }
                         }
@@ -194,7 +206,7 @@ public class ConnectMethodAnalyzer {
             String exceptions = matcher.group(1);
             String[] exceptionArray = exceptions.split(",\\s*");
             for (String exception : exceptionArray) {
-               list.add("throws : " + exception);
+                list.add("throws : " + exception);
             }
         }
 
